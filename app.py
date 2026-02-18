@@ -1014,7 +1014,8 @@ class BridgeService:
         if offset is not None:
             payload["offset"] = offset
 
-        response = await self.http.post(url, json=payload)
+        request_timeout = max(float(self.settings.tg_polling_timeout_sec) + 15.0, 30.0)
+        response = await self.http.post(url, json=payload, timeout=request_timeout)
         response.raise_for_status()
         body = response.json()
         if not body.get("ok"):
@@ -1152,6 +1153,9 @@ async def run_polling(settings: Settings) -> None:
                     await service.handle_tg_update(update)
             except asyncio.CancelledError:
                 raise
+            except httpx.ReadTimeout:
+                # Long polling may occasionally exceed transport timeout window.
+                continue
             except Exception:
                 logging.exception("Polling loop failed, retrying")
                 await asyncio.sleep(backoff_seconds)
