@@ -26,9 +26,6 @@ class Settings:
     tg_update_mode: str
     tg_polling_timeout_sec: int
     tg_polling_drop_pending_updates: bool
-    admin_chat_id: str | None
-    admin_notify_success: bool
-    admin_notify_errors: bool
     max_api_base: str
     max_bot_token: str
     max_target_chat_id: int
@@ -81,8 +78,6 @@ def load_settings() -> Settings:
 
     raw_mode = (os.getenv("TG_UPDATE_MODE", "webhook") or "webhook").strip().lower()
     tg_update_mode = raw_mode if raw_mode in {"webhook", "polling"} else "webhook"
-    raw_admin_chat_id = (os.getenv("ADMIN_CHAT_ID") or "").strip()
-    admin_chat_id = raw_admin_chat_id or None
 
     return Settings(
         tg_bot_token=required("TG_BOT_TOKEN"),
@@ -92,9 +87,6 @@ def load_settings() -> Settings:
         tg_update_mode=tg_update_mode,
         tg_polling_timeout_sec=env_int("TG_POLLING_TIMEOUT_SEC", 50, min_value=1),
         tg_polling_drop_pending_updates=env_bool("TG_POLLING_DROP_PENDING_UPDATES", False),
-        admin_chat_id=admin_chat_id,
-        admin_notify_success=env_bool("ADMIN_NOTIFY_SUCCESS", False),
-        admin_notify_errors=env_bool("ADMIN_NOTIFY_ERRORS", False),
         max_api_base=os.getenv("MAX_API_BASE", "https://platform-api.max.ru").rstrip("/"),
         max_bot_token=required("MAX_BOT_TOKEN"),
         max_target_chat_id=int(required("MAX_TARGET_CHAT_ID")),
@@ -369,13 +361,13 @@ class BridgeService:
             max_id = max_ids[0] if max_ids else None
             if max_id and tg_chat_id is not None and tg_message_id is not None:
                 self.message_map.put_ids(tg_chat_id, tg_message_id, max_ids)
-            await self.notify_admin_success(
+            await self.notify_admin(
                 f"OK: post {tg_message_id} published to MAX"
                 + (f" (max_id={max_id})" if max_id else "")
             )
         except Exception as exc:
             logging.exception("Failed to publish post %s", tg_message_id)
-            await self.notify_admin_error(f"ERROR: post {tg_message_id} failed: {exc}")
+            await self.notify_admin(f"ERROR: post {tg_message_id} failed: {exc}")
 
     async def process_media_group(self, posts: list[dict[str, Any]]) -> None:
         lead_post = posts[0]
@@ -414,13 +406,13 @@ class BridgeService:
                     tg_message_id = self.extract_tg_message_id(post)
                     if tg_message_id is not None:
                         self.message_map.put_ids(tg_chat_id, tg_message_id, max_ids)
-            await self.notify_admin_success(
+            await self.notify_admin(
                 f"OK: media group lead {lead_message_id} ({len(posts)} items) published to MAX"
                 + (f" (max_id={max_id})" if max_id else "")
             )
         except Exception as exc:
             logging.exception("Failed to publish media group lead %s", lead_message_id)
-            await self.notify_admin_error(
+            await self.notify_admin(
                 f"ERROR: media group lead {lead_message_id} ({len(posts)} items) failed: {exc}"
             )
 
@@ -440,13 +432,13 @@ class BridgeService:
                 )
                 if tg_chat_id is not None and tg_message_id is not None and updated_ids:
                     self.message_map.put_ids(tg_chat_id, tg_message_id, updated_ids)
-                await self.notify_admin_success(
+                await self.notify_admin(
                     f"OK: edited post {tg_message_id} synced to MAX"
                     + (f" (max_id={updated_ids[0]})" if updated_ids else "")
                 )
             except Exception as exc:
                 logging.exception("Failed to sync edited post %s", tg_message_id)
-                await self.notify_admin_error(
+                await self.notify_admin(
                     f"ERROR: edited post {tg_message_id} sync failed: {exc}"
                 )
             return
@@ -1136,42 +1128,15 @@ class BridgeService:
             return False
         return payload.get("code") == "attachment.not.ready"
 
-    async def notify_admin_success(self, text: str) -> None:
-        if not self.settings.admin_notify_success:
-            return
-        await self.notify_admin(text)
-
-    async def notify_admin_error(self, text: str) -> None:
-        if not self.settings.admin_notify_errors:
-            return
-        await self.notify_admin(text)
-
     async def notify_admin(self, text: str) -> None:
-        admin_chat_id = (self.settings.admin_chat_id or "").strip()
-        if not admin_chat_id:
+        admin_id = self.settings.tg_admin_id
+        if admin_id is None:
             return
 
-        chat_ids = [admin_chat_id]
-        if admin_chat_id.isdigit():
-            chat_ids.append(f"-100{admin_chat_id}")
-
-        for chat_id in chat_ids:
-            try:
-                await self.send_tg_message(chat_id=chat_id, text=text[:4000])
-                return
-            except httpx.HTTPStatusError as exc:
-                if (
-                    exc.response.status_code == 400
-                    and "chat not found" in exc.response.text.lower()
-                ):
-                    continue
-                logging.exception("Failed to notify admin")
-                return
-            except Exception:
-                logging.exception("Failed to notify admin")
-                return
-
-        logging.error("Failed to notify admin: chat not found for ADMIN_CHAT_ID candidates")
+        try:
+            await self.send_tg_message(chat_id=admin_id, text=text[:4000])
+        except Exception:
+            logging.exception("Failed to notify TG admin")
 
     async def send_tg_message(self, chat_id: int | str, text: str) -> None:
         url = f"https://api.telegram.org/bot{self.settings.tg_bot_token}/sendMessage"
