@@ -26,6 +26,7 @@ build/
 *.sqlite
 *.sqlite3
 bridge_state.db
+.service-name
 
 # IDE/OS files
 .idea/

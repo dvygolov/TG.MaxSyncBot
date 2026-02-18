@@ -7,8 +7,14 @@ if [[ "${1:-}" == "-u" || "${1:-}" == "--uninstall" ]]; then
   shift || true
 fi
 
-SERVICE_NAME="${1:-${SERVICE_NAME:-tg-maxsyncbot}}"
 DIST_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVICE_NAME_FILE="$DIST_PATH/.service-name"
+INPUT_SERVICE_NAME="${1:-}"
+SAVED_SERVICE_NAME=""
+if [[ -f "$SERVICE_NAME_FILE" ]]; then
+  SAVED_SERVICE_NAME="$(tr -d '[:space:]' < "$SERVICE_NAME_FILE" || true)"
+fi
+SERVICE_NAME="${INPUT_SERVICE_NAME:-${SERVICE_NAME:-${SAVED_SERVICE_NAME:-tg-maxsyncbot}}}"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 LOG_FILE="$DIST_PATH/${SERVICE_NAME}.service.log"
 PY_BIN="$DIST_PATH/.venv/bin/python"
@@ -40,6 +46,10 @@ if [[ "$ACTION" == "uninstall" ]]; then
   if [[ -f "$SERVICE_FILE" ]]; then
     sudo rm -f "$SERVICE_FILE"
     sudo systemctl daemon-reload
+  fi
+
+  if [[ -f "$SERVICE_NAME_FILE" && "$SAVED_SERVICE_NAME" == "$SERVICE_NAME" ]]; then
+    rm -f "$SERVICE_NAME_FILE"
   fi
 
   echo "$LOG_PREFIX Uninstalled ${SERVICE_NAME}.service"
@@ -89,6 +99,7 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE_NAME}.service"
 sudo systemctl restart "${SERVICE_NAME}.service"
+printf "%s\n" "$SERVICE_NAME" > "$SERVICE_NAME_FILE"
 
 echo "$LOG_PREFIX Installed and started ${SERVICE_NAME}.service"
 echo "$LOG_PREFIX Manage:"
