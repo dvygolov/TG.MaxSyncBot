@@ -41,7 +41,6 @@ python app.py
 
 Обязательные:
 - `TG_BOT_TOKEN` — токен Telegram-бота.
-- `ADMIN_CHAT_ID` — куда бот шлет служебные уведомления (`OK/ERROR`).
 - `MAX_BOT_TOKEN` — токен бота MAX.
 - `MAX_TARGET_CHAT_ID` — ID канала/чата в MAX для публикации.
 
@@ -53,6 +52,9 @@ python app.py
 - `TG_WEBHOOK_SECRET` — секрет Telegram webhook (используется в режиме `webhook`).
 - `TG_POLLING_TIMEOUT_SEC` — long polling timeout в секундах (по умолчанию `50`).
 - `TG_POLLING_DROP_PENDING_UPDATES` — сбрасывать ли накопленные апдейты при старте polling (`false` по умолчанию).
+- `ADMIN_CHAT_ID` — чат для служебных уведомлений (если уведомления включены).
+- `ADMIN_NOTIFY_SUCCESS` — слать `OK` уведомления в Telegram (`false` по умолчанию).
+- `ADMIN_NOTIFY_ERRORS` — слать `ERROR` уведомления в Telegram (`false` по умолчанию).
 - `APP_HOST`, `APP_PORT`, `LOG_LEVEL`.
 - `STATE_DB_PATH` — путь к SQLite базе маппинга TG<->MAX.
 - `REPOST_ALL_POSTS` — режим отбора постов:
@@ -67,7 +69,7 @@ python app.py
 - создать бота через `@BotFather`,
 - взять `TG_BOT_TOKEN`.
 
-2. `ADMIN_CHAT_ID`:
+2. `ADMIN_CHAT_ID` (опционально):
 - можно поставить username канала/чата или числовой ID.
 - для каналов числовой ID обычно вида `-100...`.
 
