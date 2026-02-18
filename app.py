@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 @dataclass
 class Settings:
     tg_bot_token: str
+    tg_source_chat_id: int | None
     tg_webhook_secret: str | None
     tg_update_mode: str
     tg_polling_timeout_sec: int
@@ -68,6 +69,15 @@ def load_settings() -> Settings:
             return min_value
         return value
 
+    def env_chat_id(name: str) -> int | None:
+        raw = (os.getenv(name) or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except ValueError as exc:
+            raise RuntimeError(f"{name} must be an integer chat id, got: {raw}") from exc
+
     raw_mode = (os.getenv("TG_UPDATE_MODE", "webhook") or "webhook").strip().lower()
     tg_update_mode = raw_mode if raw_mode in {"webhook", "polling"} else "webhook"
     raw_admin_chat_id = (os.getenv("ADMIN_CHAT_ID") or "").strip()
@@ -75,6 +85,7 @@ def load_settings() -> Settings:
 
     return Settings(
         tg_bot_token=required("TG_BOT_TOKEN"),
+        tg_source_chat_id=env_chat_id("TG_SOURCE_CHAT_ID"),
         tg_webhook_secret=os.getenv("TG_WEBHOOK_SECRET") or None,
         tg_update_mode=tg_update_mode,
         tg_polling_timeout_sec=env_int("TG_POLLING_TIMEOUT_SEC", 50, min_value=1),
@@ -236,15 +247,36 @@ class BridgeService:
     async def handle_tg_update(self, update: dict[str, Any]) -> None:
         post = update.get("channel_post")
         if isinstance(post, dict):
-            media_group_id = post.get("media_group_id")
-            if isinstance(media_group_id, str) and media_group_id:
-                await self.enqueue_media_group_post(post)
-            else:
-                await self.process_single_post(post)
+            post_chat_id = self.extract_tg_chat_id(post)
+            if self.is_allowed_source_chat(post_chat_id):
+                media_group_id = post.get("media_group_id")
+                if isinstance(media_group_id, str) and media_group_id:
+                    await self.enqueue_media_group_post(post)
+                else:
+                    await self.process_single_post(post)
 
         edited_post = update.get("edited_channel_post")
         if isinstance(edited_post, dict):
-            await self.process_edited_post(edited_post)
+            edited_chat_id = self.extract_tg_chat_id(edited_post)
+            if self.is_allowed_source_chat(edited_chat_id):
+                await self.process_edited_post(edited_post)
+
+    def is_allowed_source_chat(self, tg_chat_id: int | None) -> bool:
+        source_chat_id = self.settings.tg_source_chat_id
+        if source_chat_id is None:
+            return True
+        if tg_chat_id is None:
+            return False
+
+        candidates: set[int] = {source_chat_id}
+        if source_chat_id > 0:
+            # Allow short channel id format (e.g. 12345 -> -10012345).
+            candidates.add(int(f"-100{source_chat_id}"))
+        elif str(source_chat_id).startswith("-100"):
+            # Allow both full channel id and short id representations.
+            candidates.add(int(str(source_chat_id)[4:]))
+
+        return tg_chat_id in candidates
 
     async def enqueue_media_group_post(self, post: dict[str, Any]) -> None:
         key = self.media_group_key(post)
