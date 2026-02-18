@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 class Settings:
     tg_bot_token: str
     tg_source_chat_id: int | None
+    tg_admin_id: int | None
     tg_webhook_secret: str | None
     tg_update_mode: str
     tg_polling_timeout_sec: int
@@ -86,6 +87,7 @@ def load_settings() -> Settings:
     return Settings(
         tg_bot_token=required("TG_BOT_TOKEN"),
         tg_source_chat_id=env_chat_id("TG_SOURCE_CHAT_ID"),
+        tg_admin_id=env_chat_id("TG_ADMIN_ID"),
         tg_webhook_secret=os.getenv("TG_WEBHOOK_SECRET") or None,
         tg_update_mode=tg_update_mode,
         tg_polling_timeout_sec=env_int("TG_POLLING_TIMEOUT_SEC", 50, min_value=1),
@@ -260,6 +262,54 @@ class BridgeService:
             edited_chat_id = self.extract_tg_chat_id(edited_post)
             if self.is_allowed_source_chat(edited_chat_id):
                 await self.process_edited_post(edited_post)
+
+        message = update.get("message")
+        if isinstance(message, dict):
+            await self.process_admin_command(message)
+
+    async def process_admin_command(self, message: dict[str, Any]) -> None:
+        text = message.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return
+
+        command = text.strip().split()[0].split("@")[0].lower()
+        if command not in {"/start", "/status"}:
+            return
+
+        if not self.is_admin_message(message):
+            return
+
+        chat = message.get("chat")
+        if not isinstance(chat, dict):
+            return
+        chat_id = chat.get("id")
+        if not isinstance(chat_id, int):
+            return
+
+        source_chat = (
+            str(self.settings.tg_source_chat_id)
+            if self.settings.tg_source_chat_id is not None
+            else "не задан (мониторю все каналы, где есть бот)"
+        )
+        response_text = (
+            "Привет, админ. Я работаю.\n"
+            f"Источник TG: {source_chat}\n"
+            f"Назначение MAX: {self.settings.max_target_chat_id}\n"
+            f"Режим TG: {self.settings.tg_update_mode}"
+        )
+        await self.send_tg_message(chat_id=chat_id, text=response_text)
+
+    def is_admin_message(self, message: dict[str, Any]) -> bool:
+        admin_id = self.settings.tg_admin_id
+        if admin_id is None:
+            return False
+
+        from_user = message.get("from")
+        from_id = from_user.get("id") if isinstance(from_user, dict) else None
+        chat = message.get("chat")
+        chat_id = chat.get("id") if isinstance(chat, dict) else None
+
+        return from_id == admin_id or chat_id == admin_id
 
     def is_allowed_source_chat(self, tg_chat_id: int | None) -> bool:
         source_chat_id = self.settings.tg_source_chat_id
@@ -1049,7 +1099,7 @@ class BridgeService:
         url = f"https://api.telegram.org/bot{self.settings.tg_bot_token}/getUpdates"
         payload: dict[str, Any] = {
             "timeout": self.settings.tg_polling_timeout_sec,
-            "allowed_updates": ["channel_post", "edited_channel_post"],
+            "allowed_updates": ["channel_post", "edited_channel_post", "message"],
         }
         if offset is not None:
             payload["offset"] = offset
@@ -1101,20 +1151,13 @@ class BridgeService:
         if not admin_chat_id:
             return
 
-        url = f"https://api.telegram.org/bot{self.settings.tg_bot_token}/sendMessage"
         chat_ids = [admin_chat_id]
         if admin_chat_id.isdigit():
             chat_ids.append(f"-100{admin_chat_id}")
 
         for chat_id in chat_ids:
-            payload = {
-                "chat_id": chat_id,
-                "text": text[:4000],
-                "disable_web_page_preview": True,
-            }
             try:
-                response = await self.http.post(url, json=payload)
-                response.raise_for_status()
+                await self.send_tg_message(chat_id=chat_id, text=text[:4000])
                 return
             except httpx.HTTPStatusError as exc:
                 if (
@@ -1129,6 +1172,16 @@ class BridgeService:
                 return
 
         logging.error("Failed to notify admin: chat not found for ADMIN_CHAT_ID candidates")
+
+    async def send_tg_message(self, chat_id: int | str, text: str) -> None:
+        url = f"https://api.telegram.org/bot{self.settings.tg_bot_token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": text[:4000],
+            "disable_web_page_preview": True,
+        }
+        response = await self.http.post(url, json=payload)
+        response.raise_for_status()
 
     @staticmethod
     def extract_max_message_id(response_json: dict[str, Any]) -> str | None:
