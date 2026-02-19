@@ -10,11 +10,12 @@
 - редактирование постов (`edited_channel_post`),
 - длинные тексты с разбиением на несколько сообщений.
 
+Связь с разработчиком: https://t.me/ywbfeedbackbot
+
 ## 1. Требования
 
 - Python `3.11+`
 - зависимости из `requirements.txt`:
-  - `aiohttp==3.11.13`
   - `httpx==0.28.1`
   - `python-dotenv==1.0.1`
 
@@ -33,81 +34,28 @@ copy .env.example .env
 python app.py
 ```
 
-Эндпоинты:
-- `GET /health` (только в режиме `webhook`)
-- `POST /tg/webhook` (только в режиме `webhook`)
-
 ## 3. Что заполнить в .env
 
 Обязательные:
 - `TG_BOT_TOKEN` — токен Telegram-бота.
+- `TG_SOURCE_CHAT_ID` — ID исходного Telegram-канала для мониторинга.
+- `TG_ADMIN_ID` — ID админа для команд боту в личке (`/start`, `/status`) и сервисных уведомлений (`OK/ERROR`).
 - `MAX_BOT_TOKEN` — токен бота MAX.
 - `MAX_TARGET_CHAT_ID` — ID канала/чата в MAX для публикации.
 
+Если обязательные параметры не заданы, бот пишет ошибку в лог и не запускается.
+
 Опциональные:
-- `TG_SOURCE_CHAT_ID` — ID исходного Telegram-канала для мониторинга. Если задан, бот обрабатывает только этот канал.
-- `TG_ADMIN_ID` — ID админа для команд боту в личке (`/start`, `/status`) и сервисных уведомлений (`OK/ERROR`).
 - `MAX_API_BASE` — по умолчанию `https://platform-api.max.ru`.
-- `TG_UPDATE_MODE` — режим получения апдейтов из Telegram:
-  - `webhook` (по умолчанию),
-  - `polling` (без webhook и без публичного URL).
-- `TG_WEBHOOK_SECRET` — секрет Telegram webhook (используется в режиме `webhook`).
 - `TG_POLLING_TIMEOUT_SEC` — long polling timeout в секундах (по умолчанию `50`).
 - `TG_POLLING_DROP_PENDING_UPDATES` — сбрасывать ли накопленные апдейты при старте polling (`false` по умолчанию).
-- `APP_HOST`, `APP_PORT`, `LOG_LEVEL`.
+- `LOG_LEVEL`.
 - `STATE_DB_PATH` — путь к SQLite базе маппинга TG<->MAX.
 - `REPOST_ALL_POSTS` — режим отбора постов:
   - `true` (по умолчанию): репостятся все посты.
   - `false`: репостятся только посты, где последнее слово начинается с `#`.
 
-## 4. Как получить ID и токены
-
-### Telegram
-
-1. Токен бота:
-- создать бота через `@BotFather`,
-- взять `TG_BOT_TOKEN`.
-
-2. `TG_SOURCE_CHAT_ID` (опционально, но рекомендуется):
-- ID канала, который нужно мониторить.
-- можно указать полный ID канала `-100...` или короткий `123...`.
-
-3. `TG_ADMIN_ID` (опционально, но рекомендуется):
-- числовой ID пользователя-админа.
-- если задан: может писать боту `/start` и `/status`, и получает сервисные `OK/ERROR` уведомления.
-
-4. Дать боту права в исходном канале:
-- бот должен быть админом, если нужен стабильный доступ к постам/медиа.
-
-### MAX
-
-1. Создать/получить токен бота MAX -> `MAX_BOT_TOKEN`.
-2. Добавить бота в целевой канал MAX с правом публикации.
-3. Взять `MAX_TARGET_CHAT_ID` (числовой ID канала).
-
-## 5. Режимы Telegram: webhook и polling
-
-### Webhook режим (`TG_UPDATE_MODE=webhook`)
-
-Используется входящий HTTP endpoint `POST /tg/webhook`.
-
-Пример установки webhook:
-
-```bash
-https://api.telegram.org/bot<TG_BOT_TOKEN>/setWebhook?url=https://your-domain/tg/webhook
-```
-
-Если используете секрет:
-- задайте `TG_WEBHOOK_SECRET` в `.env`,
-- при `setWebhook` передайте тот же secret.
-
-### Polling режим (`TG_UPDATE_MODE=polling`)
-
-- Публичный домен/HTTPS не нужен.
-- Бот сам вызывает `getUpdates` и обрабатывает `channel_post`/`edited_channel_post`.
-- При старте бот автоматически отключает webhook (`setWebhook` с пустым `url`).
-
-## 6. Логика работы
+## 4. Логика работы
 
 ### Публикация
 
@@ -138,20 +86,13 @@ https://api.telegram.org/bot<TG_BOT_TOKEN>/setWebhook?url=https://your-domain/tg
 1. если пост уже есть в MAX -> бот редактирует текст в MAX,
 2. если поста в MAX нет, но после редактирования стал подходящим по фильтру -> бот публикует его.
 
-## 7. Важные ограничения
+## 5. Важные ограничения
 
 - Spoiler в MAX через API не поддерживается: текст под спойлером публикуется как обычный.
-- Для видео в MAX иногда нужно время на обработку (`attachment.not.ready`): бот уже делает ретраи.
+- Quote в MAX через API не поддерживается: текст в quote публикуется как >>текст.
 - Эвристика reply ограничена окном недавних сообщений MAX (API limit по `count` до `100` за запрос).
-- В режиме `polling` запускайте только один инстанс бота на один токен Telegram.
 
-## 8. Рекомендации
-
-- Не коммитьте `.env` в репозиторий.
-- Храните `TG_BOT_TOKEN` и `MAX_BOT_TOKEN` как секреты.
-- Проверяйте webhook командой `getWebhookInfo` в Telegram API.
-
-## 9. Серверные скрипты (Linux/systemd)
+## 6. Серверные скрипты (Linux/systemd)
 
 В проекте есть `build.sh`, `start.sh`, `stop.sh`, `update.sh`, `install-service.sh`.
 Они рассчитаны на запуск на Linux-сервере (Ubuntu/Debian/CentOS) и повторяют типовой флоу "собрать -> поставить сервис -> обновлять одной командой".

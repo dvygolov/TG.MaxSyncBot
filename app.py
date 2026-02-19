@@ -13,17 +13,14 @@ from threading import Lock
 from typing import Any
 
 import httpx
-from aiohttp import web
 from dotenv import load_dotenv
 
 
 @dataclass
 class Settings:
     tg_bot_token: str
-    tg_source_chat_id: int | None
-    tg_admin_id: int | None
-    tg_webhook_secret: str | None
-    tg_update_mode: str
+    tg_source_chat_id: int
+    tg_admin_id: int
     tg_polling_timeout_sec: int
     tg_polling_drop_pending_updates: bool
     max_api_base: str
@@ -31,8 +28,6 @@ class Settings:
     max_target_chat_id: int
     state_db_path: str
     repost_all_posts: bool
-    host: str
-    port: int
 
 
 def load_settings() -> Settings:
@@ -67,33 +62,26 @@ def load_settings() -> Settings:
             return min_value
         return value
 
-    def env_chat_id(name: str) -> int | None:
+    def required_int(name: str) -> int:
         raw = (os.getenv(name) or "").strip()
         if not raw:
-            return None
+            raise RuntimeError(f"Missing required environment variable: {name}")
         try:
             return int(raw)
         except ValueError as exc:
-            raise RuntimeError(f"{name} must be an integer chat id, got: {raw}") from exc
-
-    raw_mode = (os.getenv("TG_UPDATE_MODE", "webhook") or "webhook").strip().lower()
-    tg_update_mode = raw_mode if raw_mode in {"webhook", "polling"} else "webhook"
+            raise RuntimeError(f"{name} must be an integer, got: {raw}") from exc
 
     return Settings(
         tg_bot_token=required("TG_BOT_TOKEN"),
-        tg_source_chat_id=env_chat_id("TG_SOURCE_CHAT_ID"),
-        tg_admin_id=env_chat_id("TG_ADMIN_ID"),
-        tg_webhook_secret=os.getenv("TG_WEBHOOK_SECRET") or None,
-        tg_update_mode=tg_update_mode,
+        tg_source_chat_id=required_int("TG_SOURCE_CHAT_ID"),
+        tg_admin_id=required_int("TG_ADMIN_ID"),
         tg_polling_timeout_sec=env_int("TG_POLLING_TIMEOUT_SEC", 50, min_value=1),
         tg_polling_drop_pending_updates=env_bool("TG_POLLING_DROP_PENDING_UPDATES", False),
         max_api_base=os.getenv("MAX_API_BASE", "https://platform-api.max.ru").rstrip("/"),
         max_bot_token=required("MAX_BOT_TOKEN"),
-        max_target_chat_id=int(required("MAX_TARGET_CHAT_ID")),
+        max_target_chat_id=required_int("MAX_TARGET_CHAT_ID"),
         state_db_path=os.getenv("STATE_DB_PATH", "bridge_state.db"),
         repost_all_posts=env_bool("REPOST_ALL_POSTS", True),
-        host=os.getenv("APP_HOST", "0.0.0.0"),
-        port=int(os.getenv("APP_PORT", "8080")),
     )
 
 
@@ -278,23 +266,15 @@ class BridgeService:
         if not isinstance(chat_id, int):
             return
 
-        source_chat = (
-            str(self.settings.tg_source_chat_id)
-            if self.settings.tg_source_chat_id is not None
-            else "не задан (мониторю все каналы, где есть бот)"
-        )
         response_text = (
             "Привет, админ. Я работаю.\n"
-            f"Источник TG: {source_chat}\n"
-            f"Назначение MAX: {self.settings.max_target_chat_id}\n"
-            f"Режим TG: {self.settings.tg_update_mode}"
+            f"Источник TG: {self.settings.tg_source_chat_id}\n"
+            f"Назначение MAX: {self.settings.max_target_chat_id}"
         )
         await self.send_tg_message(chat_id=chat_id, text=response_text)
 
     def is_admin_message(self, message: dict[str, Any]) -> bool:
         admin_id = self.settings.tg_admin_id
-        if admin_id is None:
-            return False
 
         from_user = message.get("from")
         from_id = from_user.get("id") if isinstance(from_user, dict) else None
@@ -305,8 +285,6 @@ class BridgeService:
 
     def is_allowed_source_chat(self, tg_chat_id: int | None) -> bool:
         source_chat_id = self.settings.tg_source_chat_id
-        if source_chat_id is None:
-            return True
         if tg_chat_id is None:
             return False
 
@@ -1075,7 +1053,7 @@ class BridgeService:
 
         raise RuntimeError("MAX send failed after retries")
 
-    async def disable_tg_webhook_for_polling(self) -> None:
+    async def reset_tg_update_delivery(self) -> None:
         url = f"https://api.telegram.org/bot{self.settings.tg_bot_token}/setWebhook"
         payload = {
             "url": "",
@@ -1130,8 +1108,6 @@ class BridgeService:
 
     async def notify_admin(self, text: str) -> None:
         admin_id = self.settings.tg_admin_id
-        if admin_id is None:
-            return
 
         try:
             await self.send_tg_message(chat_id=admin_id, text=text[:4000])
@@ -1159,33 +1135,6 @@ class BridgeService:
         return response_json.get("message_id") or response_json.get("id")
 
 
-async def health(_: web.Request) -> web.Response:
-    return web.json_response({"ok": True})
-
-
-async def tg_webhook(request: web.Request) -> web.Response:
-    service: BridgeService = request.app["bridge_service"]
-    settings: Settings = request.app["settings"]
-
-    if settings.tg_webhook_secret:
-        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-        if secret != settings.tg_webhook_secret:
-            return web.Response(status=403, text="invalid secret")
-
-    try:
-        update = await request.json()
-    except Exception:
-        return web.Response(status=400, text="invalid json")
-
-    asyncio.create_task(service.handle_tg_update(update))
-    return web.json_response({"ok": True})
-
-
-async def on_cleanup(app: web.Application) -> None:
-    service: BridgeService = app["bridge_service"]
-    await service.close()
-
-
 def configure_logging(level: str) -> None:
     logging.basicConfig(
         level=level,
@@ -1193,23 +1142,12 @@ def configure_logging(level: str) -> None:
     )
 
 
-def create_app(settings: Settings) -> web.Application:
-    app = web.Application()
-    app["settings"] = settings
-    app["bridge_service"] = BridgeService(settings)
-
-    app.router.add_get("/health", health)
-    app.router.add_post("/tg/webhook", tg_webhook)
-    app.on_cleanup.append(on_cleanup)
-    return app
-
-
 async def run_polling(settings: Settings) -> None:
     service = BridgeService(settings)
     offset = service.get_polling_offset()
     backoff_seconds = 3.0
     try:
-        await service.disable_tg_webhook_for_polling()
+        await service.reset_tg_update_delivery()
         while True:
             try:
                 updates = await service.fetch_tg_updates(offset=offset)
@@ -1234,10 +1172,16 @@ async def run_polling(settings: Settings) -> None:
 
 
 if __name__ == "__main__":
-    conf = load_settings()
+    load_dotenv()
     configure_logging(os.getenv("LOG_LEVEL", "INFO"))
-    if conf.tg_update_mode == "polling":
-        asyncio.run(run_polling(conf))
-    else:
-        application = create_app(conf)
-        web.run_app(application, host=conf.host, port=conf.port)
+    try:
+        conf = load_settings()
+    except RuntimeError as exc:
+        logging.error(
+            "Конфигурация невалидна: %s. "
+            "Укажите обязательные параметры (включая TG_SOURCE_CHAT_ID и TG_ADMIN_ID) перед запуском.",
+            exc,
+        )
+        raise SystemExit(1)
+
+    asyncio.run(run_polling(conf))
