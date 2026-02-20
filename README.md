@@ -1,23 +1,27 @@
-# TG -> MAX bridge
+# TG -> VK bridge
 
-Бот пересылает посты из Telegram-канала в канал MAX.
+Бот пересылает посты из Telegram-канала в стену сообщества VK через VK API, используя `access_token`, автоматически извлеченный из браузерной VK-сессии (Playwright).
 
 Поддерживает:
-- текст и форматирование (bold/italic/underline/code/link/quote),
-- медиа (image/video/audio/file),
-- media group (несколько вложений одним постом),
-- реплаи (TG reply -> MAX reply),
-- редактирование постов (`edited_channel_post`),
-- длинные тексты с разбиением на несколько сообщений.
-
-Связь с разработчиком: https://t.me/ywbfeedbackbot
+- текст,
+- ссылки `text_link` в формате `текст (https://...)`,
+- фото,
+- видео,
+- media group (несколько вложений в одном посте),
+- длинные тексты с разбиением на несколько постов.
 
 ## 1. Требования
 
 - Python `3.11+`
-- зависимости из `requirements.txt`:
+- зависимости:
   - `httpx==0.28.1`
   - `python-dotenv==1.0.1`
+  - `playwright==1.52.0`
+- установленный браузер для Playwright:
+
+```bash
+playwright install chromium
+```
 
 ## 2. Установка
 
@@ -25,134 +29,98 @@
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+playwright install chromium
 copy .env.example .env
 ```
 
-Запуск:
+## 3. Конфиг `.env`
+
+Обязательные:
+- `TG_BOT_TOKEN`
+- `TG_SOURCE_CHAT_ID`
+- `TG_ADMIN_ID`
+- `VK_GROUP_ID`
+- `VK_STORAGE_STATE_PATH` (файл сессии VK, например `vk_storage_state.json`)
+
+Опциональные:
+- `VK_BROWSER_HEADLESS` (`true` по умолчанию)
+- `VK_BROWSER_CHANNEL` (например `chrome`, `msedge`; можно пусто)
+- `VK_BROWSER_TIMEOUT_SEC` (по умолчанию `60`)
+- `VK_MEDIA_TMP_DIR` (временная папка для медиа, по умолчанию `.vk_media_tmp`)
+- `STATE_DB_PATH`
+- `REPOST_ALL_POSTS`
+
+## 4. Обновление VK-сессии
+
+Локально:
+
+```bash
+python vk_session_refresh.py --storage-state vk_storage_state.json
+```
+
+Шаги:
+1. Откроется окно браузера.
+2. Войдите в VK вручную (логин/пароль/2FA), убедитесь, что доступ к вашей группе есть.
+3. Нажмите Enter в консоли.
+4. Получите файл `vk_storage_state.json`.
+
+Дальше перенесите этот файл на сервер в путь из `VK_STORAGE_STATE_PATH`.
+
+## 5. Запуск
 
 ```bash
 python app.py
 ```
 
-## 3. Что заполнить в .env
+Админ-команды в Telegram:
+- `/start`, `/status` — состояние бота.
+- `/vk_session` или `/check_session` — проверка, что из сохраненной сессии извлекается рабочий web `access_token`.
 
-Обязательные:
-- `TG_BOT_TOKEN` — токен Telegram-бота.
-- `TG_SOURCE_CHAT_ID` — ID исходного Telegram-канала для мониторинга.
-- `TG_ADMIN_ID` — ID админа для команд боту в личке (`/start`, `/status`) и сервисных уведомлений (`OK/ERROR`).
-- `MAX_BOT_TOKEN` — токен бота MAX.
-- `MAX_TARGET_CHAT_ID` — ID канала/чата в MAX для публикации.
+## 6. Поведение
 
-Если обязательные параметры не заданы, бот пишет ошибку в лог и не запускается.
+- Публикация идет через VK API (`wall.post`, `photos.*`, `video.save`), токен берется из браузерной VK-сессии автоматически.
+- Если в одном посте более 10 вложений, бот разобьет их на несколько постов.
+- Форматирование Telegram (bold/italic/underline/code) не переносится: в VK идет plain text.
+- `edited_channel_post` в текущем браузерном режиме не синхронизируется.
 
-Опциональные:
-- `MAX_API_BASE` — по умолчанию `https://platform-api.max.ru`.
-- `TG_POLLING_TIMEOUT_SEC` — long polling timeout в секундах (по умолчанию `50`).
-- `TG_POLLING_DROP_PENDING_UPDATES` — сбрасывать ли накопленные апдейты при старте polling (`false` по умолчанию).
-- `LOG_LEVEL`.
-- `STATE_DB_PATH` — путь к SQLite базе маппинга TG<->MAX.
-- `REPOST_ALL_POSTS` — режим отбора постов:
-  - `true` (по умолчанию): репостятся все посты.
-  - `false`: репостятся только посты, где последнее слово начинается с `#`.
+## 7. Ограничения
 
-## 4. Логика работы
+- Сессия VK не вечная: иногда потребуется заново прогнать `vk_session_refresh.py` и обновить файл состояния на сервере.
+- Если VK попросит повторный вход/капчу/подтверждение, бот не сможет публиковать, пока сессия не обновлена.
+- В текущей реализации вложения поддерживаются только для `image/*` и `video/*`.
 
-### Публикация
-
-- `REPOST_ALL_POSTS=true`: любой пост репостится в MAX.
-- `REPOST_ALL_POSTS=false`: репост только если последнее слово — хэштег.
-
-### Длинные тексты
-
-- лимит MAX: `4000` символов в `request.text`.
-- если текст длиннее, бот режет его по абзацу/переносу/слову около `2000`.
-- в конец промежуточной части добавляет:
-  - `👇 ПРОДОЛЖЕНИЕ В СЛЕДУЮЩЕМ ПОСТЕ`
-- следующая часть отправляется reply на предыдущую.
-
-### Media group
-
-- несколько вложений из одного TG `media_group` собираются в один пост в MAX.
-
-### Реплаи
-
-- если TG пост является reply, бот пытается найти соответствующий пост в MAX:
-  - сначала по локальному маппингу (SQLite),
-  - если маппинга нет — по эвристике сравнения текста среди последних сообщений MAX.
-
-### Редактирование постов
-
-При `edited_channel_post`:
-1. если пост уже есть в MAX -> бот редактирует текст в MAX,
-2. если поста в MAX нет, но после редактирования стал подходящим по фильтру -> бот публикует его.
-
-## 5. Важные ограничения
-
-- Spoiler в MAX через API не поддерживается: текст под спойлером публикуется как обычный.
-- Quote в MAX через API не поддерживается: текст в quote публикуется как >>текст.
-- Эвристика reply ограничена окном недавних сообщений MAX (API limit по `count` до `100` за запрос).
-
-## 6. Серверные скрипты (Linux/systemd)
+## 8. Linux/systemd скрипты
 
 В проекте есть `build.sh`, `start.sh`, `stop.sh`, `update.sh`, `install-service.sh`.
-Они рассчитаны на запуск на Linux-сервере (Ubuntu/Debian/CentOS) и повторяют типовой флоу "собрать -> поставить сервис -> обновлять одной командой".
 
 Подготовка:
 
 ```bash
 chmod +x build.sh start.sh stop.sh update.sh install-service.sh
 cp .env.example .env
-# заполните .env
 ```
 
-Сборка окружения:
+Сборка:
 
 ```bash
 ./build.sh
 ```
 
-Локальный запуск (без systemd):
+Локальный запуск:
 
 ```bash
 ./start.sh
 ./stop.sh
 ```
 
-Установка systemd-сервиса:
+Установка сервиса:
 
 ```bash
 ./install-service.sh
 ```
 
-Скрипт сохраняет имя установленного сервиса в `.service-name`, и `./update.sh` затем использует его автоматически.
-
-По умолчанию имя сервиса: `tg-maxsyncbot`.
-Можно задать своё:
-
-```bash
-./install-service.sh my-custom-service
-```
-
-Для неинтерактивной установки можно явно задать Linux-пользователя сервиса:
-
-```bash
-SERVICE_USER=deploy ./install-service.sh
-```
-
-Удаление сервиса:
+Удаление:
 
 ```bash
 ./install-service.sh --uninstall
-```
-
-Обновление на сервере (git pull + rebuild + restart сервиса):
-
-```bash
-./update.sh
-```
-
-Если сервис называется не `tg-maxsyncbot`, передайте имя через переменную:
-
-```bash
-SERVICE_NAME=my-custom-service ./update.sh
 ```

@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$PROJECT_ROOT/.venv"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-LOG_PREFIX="[TG.MaxSyncBot][build]"
+LOG_PREFIX="[TG.VkSyncBot][build]"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   echo "$LOG_PREFIX ERROR: $PYTHON_BIN not found in PATH."
@@ -23,6 +23,9 @@ python -m pip install --no-cache-dir --upgrade pip wheel >/dev/null
 
 echo "$LOG_PREFIX Installing requirements..."
 python -m pip install --no-cache-dir -r "$PROJECT_ROOT/requirements.txt"
+
+echo "$LOG_PREFIX Installing Playwright browser (chromium)..."
+python -m playwright install chromium
 
 deactivate
 

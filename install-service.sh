@@ -14,13 +14,13 @@ SAVED_SERVICE_NAME=""
 if [[ -f "$SERVICE_NAME_FILE" ]]; then
   SAVED_SERVICE_NAME="$(tr -d '[:space:]' < "$SERVICE_NAME_FILE" || true)"
 fi
-SERVICE_NAME="${INPUT_SERVICE_NAME:-${SERVICE_NAME:-${SAVED_SERVICE_NAME:-tg-maxsyncbot}}}"
+SERVICE_NAME="${INPUT_SERVICE_NAME:-${SERVICE_NAME:-${SAVED_SERVICE_NAME:-tg-vksyncbot}}}"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 LOG_FILE="$DIST_PATH/${SERVICE_NAME}.service.log"
 PY_BIN="$DIST_PATH/.venv/bin/python"
 APP_FILE="$DIST_PATH/app.py"
 SERVICE_USER="${SERVICE_USER:-$USER}"
-LOG_PREFIX="[TG.MaxSyncBot][service]"
+LOG_PREFIX="[TG.VkSyncBot][service]"
 
 if ! command -v systemctl >/dev/null 2>&1; then
   echo "$LOG_PREFIX ERROR: systemctl is not available on this host."
@@ -76,7 +76,7 @@ fi
 
 sudo bash -c "cat > '$SERVICE_FILE'" <<EOF
 [Unit]
-Description=TG.MaxSyncBot Telegram to MAX bridge
+Description=TG.VkSyncBot Telegram to VK wall bridge
 After=network-online.target
 Wants=network-online.target
 

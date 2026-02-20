@@ -27,6 +27,14 @@ build/
 *.sqlite3
 bridge_state.db
 .service-name
+vk_storage_state.json
+.playwright-cli/
+.vk_debug/
+.vk_media_tmp/
+$tmp
+vk_group_*.png
+vk_post_*.png
+vk_group_snapshot_*.yml
 
 # IDE/OS files
 .idea/
