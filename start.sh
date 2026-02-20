@@ -5,8 +5,8 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$PROJECT_ROOT/.venv"
 PY_BIN="$VENV_DIR/bin/python"
 APP_FILE="$PROJECT_ROOT/app.py"
-LOG_FILE="$PROJECT_ROOT/tg-vksyncbot.log"
-LOG_PREFIX="[TG.VkSyncBot][start]"
+LOG_FILE="$PROJECT_ROOT/tg-maxsyncbot.log"
+LOG_PREFIX="[TG.MaxSyncBot][start]"
 
 if [[ ! -x "$PY_BIN" ]]; then
   echo "$LOG_PREFIX Virtualenv not ready. Run ./build.sh first."

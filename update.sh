@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_NAME_FILE="$PROJECT_ROOT/.service-name"
-LOG_PREFIX="[TG.VkSyncBot][update]"
+LOG_PREFIX="[TG.MaxSyncBot][update]"
 
 resolve_service_name() {
   if [[ -n "${SERVICE_NAME:-}" ]]; then
@@ -20,7 +20,7 @@ resolve_service_name() {
     fi
   fi
 
-  echo "tg-vksyncbot"
+  echo "tg-maxsyncbot"
 }
 
 service_exists() {

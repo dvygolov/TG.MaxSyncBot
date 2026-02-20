@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY_BIN="$PROJECT_ROOT/.venv/bin/python"
 APP_FILE="$PROJECT_ROOT/app.py"
-LOG_PREFIX="[TG.VkSyncBot][stop]"
+LOG_PREFIX="[TG.MaxSyncBot][stop]"
 
 PIDS="$(pgrep -f "$PY_BIN $APP_FILE" || true)"
 
