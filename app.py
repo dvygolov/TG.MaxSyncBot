@@ -795,18 +795,6 @@ class BridgeService:
         return mapping
 
     @staticmethod
-    def quote_line_starts(text: str, quote_ranges: list[tuple[int, int]]) -> set[int]:
-        starts: set[int] = set()
-        for start, end in quote_ranges:
-            if start >= end:
-                continue
-            starts.add(start)
-            for index in range(start, end - 1):
-                if text[index] == "\n":
-                    starts.add(index + 1)
-        return starts
-
-    @staticmethod
     def entity_markers(
         entity_type: str, entity: dict[str, Any]
     ) -> tuple[str, str, int] | None:
@@ -848,8 +836,6 @@ class BridgeService:
         index_map = cls.utf16_to_py_index_map(text)
         total_utf16_units = len(index_map) - 1
         normalized: list[dict[str, Any]] = []
-        quote_ranges: list[tuple[int, int]] = []
-
         for entity in entities:
             entity_type = entity.get("type")
             offset = entity.get("offset")
@@ -865,7 +851,6 @@ class BridgeService:
                 continue
 
             if entity_type in {"blockquote", "expandable_blockquote"}:
-                quote_ranges.append((start, end))
                 continue
 
             marker = cls.entity_markers(entity_type, entity)
@@ -883,7 +868,7 @@ class BridgeService:
                 }
             )
 
-        if not normalized and not quote_ranges:
+        if not normalized:
             return html.escape(text)
 
         opens: dict[int, list[dict[str, Any]]] = defaultdict(list)
@@ -892,7 +877,6 @@ class BridgeService:
             opens[item["start"]].append(item)
             closes[item["end"]].append(item)
 
-        quote_starts = cls.quote_line_starts(text, quote_ranges)
         out: list[str] = []
         for idx in range(len(text) + 1):
             if idx in closes:
@@ -900,8 +884,6 @@ class BridgeService:
                     out.append(item["close"])
 
             if idx < len(text):
-                if idx in quote_starts:
-                    out.append(">> ")
                 if idx in opens:
                     for item in sorted(opens[idx], key=lambda x: (x["priority"], -x["end"])):
                         out.append(item["open"])
